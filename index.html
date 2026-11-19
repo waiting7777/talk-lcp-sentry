@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LCP 和 Sentry 告警</title>
+<meta name="description" content="上線後怎麼知道使用者等了多久：LCP 是什麼、Sentry 怎麼記錄效能、在關鍵節點打點、設定不吵的 alert。">
+<style>
+:root{--bg:#fbfaf7;--fg:#1f1f1c;--muted:#6b6a64;--line:#e4e1d8;--card:#fff;--accent:#2d6cb4;--codebg:#f3f1ec;--bad:#9a3b2a;--ok:#9a6b12;--good:#2f6f4f}
+@media (prefers-color-scheme:dark){:root{--bg:#171715;--fg:#ecebe6;--muted:#a3a198;--line:#2e2d29;--card:#1f1f1c;--accent:#7fb0e8;--codebg:#232320;--bad:#e59a86;--ok:#e3c27a;--good:#8fd1ac}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.75 -apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+main{max-width:780px;margin:0 auto;padding:56px 16px 80px}
+h1{font-size:2rem;line-height:1.3;margin:0 0 8px}
+.meta{color:var(--muted);font-size:.9rem}
+.lede{font-size:1.2rem;margin:28px 0;padding:20px 22px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px}
+h2{font-size:1.3rem;margin:48px 0 12px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:1.05rem;margin:28px 0 8px}
+pre{background:var(--codebg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:.85rem;line-height:1.55;margin:8px 0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+p code,li code{background:var(--codebg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:.88em}
+.scale{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
+@media (max-width:560px){.scale{grid-template-columns:1fr}}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+.box b{display:block;font-size:1.15rem}
+.box span{color:var(--muted);font-size:.92rem}
+.good b{color:var(--good)}.ok b{color:var(--ok)}.bad b{color:var(--bad)}
+figure{margin:20px 0}
+figure img{width:100%;height:auto;border:1px solid var(--line);border-radius:8px;display:block}
+figcaption{color:var(--muted);font-size:.9rem;margin-top:8px}
+.note{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:.97rem}
+.alerts{counter-reset:a;list-style:none;padding:0}
+.alerts li{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin:10px 0}
+.alerts li b{display:block}
+ol li,ul li{margin:6px 0}
+.q{font-size:1.1rem;padding:18px 22px;border:1px dashed var(--accent);border-radius:8px;margin:20px 0}
+a{color:var(--accent)}
+footer{margin-top:56px;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<main>
+<h1>上線後，怎麼知道使用者等了多久</h1>
+<div class="meta">十分鐘分享 · 2026-11 · LCP 和 Sentry</div>
+
+<p class="lede">效能問題通常不會報錯。錯誤列表很乾淨，使用者只是覺得「怎麼卡卡的」。設幾個 alert，讓大的異常在使用者來報案之前先被我們知道。</p>
+
+<h2>起因：不會報錯的停頓</h2>
+<p>React 19 在新的樣式表還沒載入完時，會延後把畫面更新上去（commit），避免畫面先出現沒有樣式的內容。這是上游的設計行為，但在 Next.js 裡換頁時，使用者看到的就是畫面停了一下。</p>
+<p>這類問題沒有 exception、沒有 log，只有「慢」。所以需要的是效能的監控和告警，不是錯誤的。</p>
+
+<h2>LCP 是什麼</h2>
+<p><b>Largest Contentful Paint</b>：從打開頁面，到畫面上最大的那塊內容（主圖、標題、主要的文字區塊）畫出來的時間。它量的是使用者心裡覺得「頁面出來了」的那一刻。</p>
+<p>看 p75，也就是 75% 的使用者在這個時間內看到：</p>
+<div class="scale">
+<div class="box good"><b>≤ 2.5 秒</b><span>好</span></div>
+<div class="box ok"><b>2.5 – 4 秒</b><span>需要改善</span></div>
+<div class="box bad"><b>&gt; 4 秒</b><span>差</span></div>
+</div>
+<ul>
+<li>同一組的 Core Web Vitals 還有 <b>INP</b>（點下去多久有反應，200ms 內算好）和 <b>CLS</b>（畫面會不會跳）。</li>
+<li>Lighthouse 是在自己電腦上跑的實驗室分數；Sentry 收的是真實使用者的網路和裝置。看使用者的體驗，以真實數據為準。</li>
+</ul>
+
+<figure>
+<img src="lcp-example.png" alt="一個網站首頁，紅框標出 LCP 元素是下方的一段文字，標籤寫 LCP 268 ms" width="1800" height="1125" loading="lazy">
+<figcaption>自己的 side project 首頁。直覺會猜 LCP 是左上的大圖，量出來是下面那段文字。LCP 要量，不要猜。（本機量一次的實驗室數據）</figcaption>
+</figure>
+
+<div class="note"><b>注意：</b>LCP 只在第一次打開頁面時量。Next.js 站內點連結換頁不會有 LCP。上面那種「換頁時等 CSS」的停頓，要看換頁本身的耗時（Sentry 的 navigation）和 INP。</div>
+
+<h2>Sentry 怎麼記錄</h2>
+<h3>自動收的</h3>
+<p>開啟 tracing 之後，每次頁面載入（pageload）和換頁（navigation）都會記一筆，帶著 LCP、INP、CLS、TTFB，也會記下 LCP 是哪個元素。</p>
+<pre><code>Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  release: process.env.NEXT_PUBLIC_RELEASE, // 綁版本，上線前後才能比較
+  environment: 'production',
+  tracesSampleRate: 0.1, // 抽 10%，控制用量
+});</code></pre>
+<p>最有用的是 <code>release</code>：有了它，上線之後可以直接比新舊版本的 p75。</p>
+
+<h3>慢的那一筆，點進去看什麼</h3>
+<p>每一筆都是一條時間軸，不用另外設定：</p>
+<ul>
+<li><b>resource</b>：每個 CSS、JS、圖片的載入時間（<code>resource.css</code>、<code>resource.script</code>、<code>resource.img</code>）。</li>
+<li><b>long task</b>：主執行緒被卡住超過 50ms 的時段（<code>ui.long-task</code>）。</li>
+</ul>
+<p>換頁慢的那一筆點進去，就看得到是不是某個 <code>resource.css</code> 還沒載完、畫面一直在等。<b>alert 告訴你「變慢了」，時間軸告訴你「卡在哪」。</b></p>
+
+<h3>自己打點的</h3>
+<p>自動收的只到頁面層級。業務流程上的關鍵節點，用 span 包起來：</p>
+<pre><code>await Sentry.startSpan({ name: 'order.submit', op: 'ui.action' }, async () =&gt; {
+  await submitOrder(data);
+});</code></pre>
+<ul>
+<li>送出表單 → 看到結果</li>
+<li>搜尋或篩選 → 列表更新</li>
+<li>進入頁面 → 權限檢查完成、確定能看到什麼</li>
+</ul>
+<p>只挑三到五個「慢了使用者會來抱怨」的地方，不要每個 function 都包。</p>
+
+<h2>設定 alert</h2>
+<ol class="alerts">
+<li><b>關鍵頁面的 LCP</b>p75 &gt; 2.5 秒持續 30 分鐘發 warning，&gt; 4 秒發 critical。</li>
+<li><b>換頁和關鍵操作</b>navigation 和自己打點的 span，p95 超過平常的 1.5 倍。換頁時的停頓會出現在這一條。</li>
+<li><b>上線後兩小時</b>新版本的 p75 有沒有比上一版差。套件升級後特別要看。</li>
+</ol>
+<p>門檻不知道怎麼訂，可以用 metric alert 的異常偵測（anomaly detection），讓它學平常的數值，偏離太多才通知。</p>
+
+<h3>讓 alert 不吵</h3>
+<ul>
+<li>看 p75 或 p95，不看單筆。</li>
+<li>設最少樣本數，半夜流量少時一兩筆慢的不會觸發。</li>
+<li>通知發到團隊頻道，不發給個人。</li>
+<li>先觀察一週平常的數值，再訂門檻。</li>
+</ul>
+
+<div class="q">你負責的部分，哪一個操作慢了，使用者最先會來抱怨？那裡就是第一個值得打點的地方。</div>
+
+<footer>
+參考：<a href="https://web.dev/articles/lcp">web.dev: Largest Contentful Paint</a> · <a href="https://web.dev/articles/inp">web.dev: INP</a> · <a href="https://docs.sentry.io/platforms/javascript/guides/nextjs/tracing/">Sentry Next.js tracing</a> · <a href="https://docs.sentry.io/product/alerts/">Sentry alerts</a><br>
+Sentry 介面名稱依版本可能不同（例如 Alerts / Monitors）。
+</footer>
+</main>
+</body>
+</html>
