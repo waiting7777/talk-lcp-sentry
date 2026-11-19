@@ -67,6 +67,15 @@ footer{margin-top:56px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 <figcaption>自己的 side project 首頁。直覺會猜 LCP 是左上的大圖，量出來是下面那段文字。LCP 要量，不要猜。（本機量一次的實驗室數據）</figcaption>
 </figure>
 
+<h3>LCP 慢，時間花在哪四段</h3>
+<ol>
+<li><b>TTFB</b>：等 server 回第一個 byte。</li>
+<li><b>資源開始載入前的等待</b>：瀏覽器多晚才發現要載這張圖或字型。</li>
+<li><b>資源載入本身</b>：圖或字型下載的時間。</li>
+<li><b>畫出來前的延遲</b>：東西都到了，還沒畫上去。被 JS、CSS 擋住就是這段。開頭那個 React 19 的停頓就屬於這一段。</li>
+</ol>
+<p>四段不用背，記得「先問是哪一段」，Sentry 的時間軸看得出來。（<a href="https://web.dev/articles/optimize-lcp">web.dev: Optimize LCP</a>）</p>
+
 <div class="note"><b>注意：</b>LCP 只在第一次打開頁面時量。Next.js 站內點連結換頁不會有 LCP。上面那種「換頁時等 CSS」的停頓，要看換頁本身的耗時（Sentry 的 navigation）和 INP。</div>
 
 <h2>Sentry 怎麼記錄</h2>
@@ -80,12 +89,21 @@ footer{margin-top:56px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 });</code></pre>
 <p>最有用的是 <code>release</code>：有了它，上線之後可以直接比新舊版本的 p75。</p>
 
+<figure>
+<img src="https://docs.sentry.io/mdx-images/frontend-overview-dash-ECVGD6RW.png" alt="Sentry 前端總覽：Performance Score 圓環、頁面耗時 p50/p75/p95、最花時間的檔案和 API" width="1352" height="762" loading="lazy">
+<figcaption>前端總覽。右上 Performance Score 把 LCP、FCP、INP、CLS、TTFB 合成一個分數；中間看 p75、p95；下面是最花時間的檔案和 API。（圖：Sentry 官方文件，示範資料）</figcaption>
+</figure>
+
 <h3>慢的那一筆，點進去看什麼</h3>
 <p>每一筆都是一條時間軸，不用另外設定：</p>
 <ul>
 <li><b>resource</b>：每個 CSS、JS、圖片的載入時間（<code>resource.css</code>、<code>resource.script</code>、<code>resource.img</code>）。</li>
 <li><b>long task</b>：主執行緒被卡住超過 50ms 的時段（<code>ui.long-task</code>）。</li>
 </ul>
+<figure>
+<img src="https://docs.sentry.io/mdx-images/trace-view-JIHR44C4.png" alt="Sentry trace view：上方是這一筆的 LCP、FCP、CLS、TTFB，下方時間軸列出 browser.request、resource.link、resource.script 等 span" width="1600" height="876" loading="lazy">
+<figcaption>一筆慢的頁面載入。時間軸上有 TTFB、FCP、LCP 三條線；<code>resource.link</code> 是 CSS、<code>resource.script</code> 是 JS。這一筆最長的是 <code>browser.request</code>，問題在等 server，不在前端。（圖：Sentry 官方文件，Next.js 示範資料）</figcaption>
+</figure>
 <p>換頁慢的那一筆點進去，就看得到是不是某個 <code>resource.css</code> 還沒載完、畫面一直在等。<b>alert 告訴你「變慢了」，時間軸告訴你「卡在哪」。</b></p>
 
 <h3>自己打點的</h3>
@@ -109,6 +127,10 @@ footer{margin-top:56px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 <p>門檻不知道怎麼訂，可以用 metric alert 的異常偵測（anomaly detection），讓它學平常的數值，偏離太多才通知。</p>
 
 <h3>讓 alert 不吵</h3>
+<figure>
+<img src="https://docs.sentry.io/mdx-images/alert-details-3IMBBABN.png" alt="Sentry alert 詳情頁：14 天內觸發 123 次，每 10 分鐘一次" width="1161" height="645" loading="lazy">
+<figcaption>14 天觸發 123 次、每 10 分鐘一次。這種 alert 響到第三天就會被靜音。alert 要少、要準。（圖：Sentry 官方文件）</figcaption>
+</figure>
 <ul>
 <li>看 p75 或 p95，不看單筆。</li>
 <li>設最少樣本數，半夜流量少時一兩筆慢的不會觸發。</li>
@@ -120,7 +142,7 @@ footer{margin-top:56px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 
 <footer>
 參考：<a href="https://web.dev/articles/lcp">web.dev: Largest Contentful Paint</a> · <a href="https://web.dev/articles/inp">web.dev: INP</a> · <a href="https://docs.sentry.io/platforms/javascript/guides/nextjs/tracing/">Sentry Next.js tracing</a> · <a href="https://docs.sentry.io/product/alerts/">Sentry alerts</a><br>
-Sentry 介面名稱依版本可能不同（例如 Alerts / Monitors）。
+Sentry 介面名稱依版本可能不同（例如 Alerts / Monitors）。Sentry 截圖取自 <a href="https://docs.sentry.io/">Sentry 官方文件</a>，內容為官方示範資料。
 </footer>
 </main>
 </body>
